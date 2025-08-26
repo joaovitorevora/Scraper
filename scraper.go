@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes" // Importado para a melhoria de diagnóstico
 	"context"
 	"encoding/json"
 	"fmt"
+	"io" // Importado para a melhoria de diagnóstico
 	"log"
 	"net/http"
 	"net/url"
@@ -55,7 +57,7 @@ func geocodeAddress(address string) (*latlng.LatLng, error) {
 	fullURL := fmt.Sprintf("%s?format=json&q=%s", baseURL, url.QueryEscape(address))
 
 	req, _ := http.NewRequest("GET", fullURL, nil)
-	// É importante ter um User-Agent para serviços como o Nominatim
+
 	req.Header.Set("User-Agent", "GeoRiskScraper/1.0 (joaovitorevora@gmail.com)")
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -65,8 +67,18 @@ func geocodeAddress(address string) (*latlng.LatLng, error) {
 	}
 	defer res.Body.Close()
 
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		log.Printf("Erro ao ler o corpo da resposta: %v", err)
+		return nil, err
+	}
+
+	res.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
 	var results []GeocodeResult
 	if err := json.NewDecoder(res.Body).Decode(&results); err != nil {
+		// Se der erro no JSON, o log abaixo irá imprimir a página HTML que a API retornou
+		log.Printf("Erro ao decodificar JSON. Corpo da resposta recebida: %s", string(bodyBytes))
 		return nil, err
 	}
 
@@ -117,10 +129,10 @@ func runScraper() {
 	log.Println("Iniciando nova execução do scraper...")
 
 	ctx := context.Background()
-	sa := option.WithCredentialsFile("./KeyFirebase.json") // O Render irá criar este arquivo para nós
+	sa := option.WithCredentialsFile("./KeyFirebase.json")
 	app, err := firebase.NewApp(ctx, nil, sa)
 	if err != nil {
-		log.Fatalf("Erro ao inicializar o Firebase: %v\n", err) // Usamos Fatalf para parar a execução em caso de erro crítico
+		log.Fatalf("Erro ao inicializar o Firebase: %v\n", err)
 	}
 	client, err := app.Firestore(ctx)
 	if err != nil {
@@ -139,6 +151,7 @@ func runScraper() {
 			log.Printf("Erro ao buscar links de %s: %v", pageURL, err)
 			continue
 		}
+
 		doc, err := goquery.NewDocumentFromReader(res.Body)
 		if res.Body != nil {
 			defer res.Body.Close()
@@ -166,20 +179,18 @@ func runScraper() {
 		}
 
 		if len(docs) > 0 {
-			log.Printf("Link já processado anteriormente, pulando: %s", link)
 			continue
 		}
 
 		address, crimeType := extractDataFromArticle(link)
 
 		if address == "" || crimeType == "nao_identificado" {
-			log.Printf("Informação insuficiente. Pulando link: %s", link)
 			continue
 		}
 
 		coords, err := geocodeAddress(address)
 		if err != nil {
-			log.Printf("Falha na geocodificação para '%s': %v", address, err)
+			log.Printf("Falha na geocodificação para o endereço '%s' extraído de %s: %v", address, link, err)
 			continue
 		}
 
@@ -204,6 +215,5 @@ func runScraper() {
 }
 
 func main() {
-
 	runScraper()
 }
