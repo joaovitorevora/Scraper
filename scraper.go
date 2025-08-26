@@ -55,7 +55,8 @@ func geocodeAddress(address string) (*latlng.LatLng, error) {
 	fullURL := fmt.Sprintf("%s?format=json&q=%s", baseURL, url.QueryEscape(address))
 
 	req, _ := http.NewRequest("GET", fullURL, nil)
-	req.Header.Set("User-Agent", "GeoRiskScraper/1.0 (seu-contato@email.com)")
+	// É importante ter um User-Agent para serviços como o Nominatim
+	req.Header.Set("User-Agent", "GeoRiskScraper/1.0 (seu-email-para-contato@example.com)")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	res, err := client.Do(req)
@@ -116,16 +117,14 @@ func runScraper() {
 	log.Println("Iniciando nova execução do scraper...")
 
 	ctx := context.Background()
-	sa := option.WithCredentialsFile("./KeyFirebase.json")
+	sa := option.WithCredentialsFile("./KeyFirebase.json") // O Render irá criar este arquivo para nós
 	app, err := firebase.NewApp(ctx, nil, sa)
 	if err != nil {
-		log.Printf("Erro ao inicializar o Firebase: %v\n", err)
-		return // return para não parar o programa principal
+		log.Fatalf("Erro ao inicializar o Firebase: %v\n", err) // Usamos Fatalf para parar a execução em caso de erro crítico
 	}
 	client, err := app.Firestore(ctx)
 	if err != nil {
-		log.Printf("Erro ao conectar ao Firestore: %v", err)
-		return
+		log.Fatalf("Erro ao conectar ao Firestore: %v", err)
 	}
 	defer client.Close()
 
@@ -140,8 +139,10 @@ func runScraper() {
 			log.Printf("Erro ao buscar links de %s: %v", pageURL, err)
 			continue
 		}
-		defer res.Body.Close()
 		doc, err := goquery.NewDocumentFromReader(res.Body)
+		if res.Body != nil {
+			defer res.Body.Close()
+		}
 		if err != nil {
 			log.Printf("Erro ao ler a página de links %s: %v", pageURL, err)
 			continue
@@ -182,7 +183,7 @@ func runScraper() {
 			continue
 		}
 
-		log.Printf("SUCESSO! Processando novo link: %s", link)
+		log.Printf("SUCESSO! Processando e salvando novo link: %s", link)
 
 		_, _, err = client.Collection("risk_zones").Add(ctx, map[string]interface{}{
 			"latitude":  coords.Latitude,
@@ -199,25 +200,10 @@ func runScraper() {
 	}
 
 	log.Println("Scraping concluído.")
-	log.Println("Aguardando 24 horas para a próxima execução...")
+	log.Println("=======================================")
 }
 
 func main() {
 
-	ticker := time.NewTicker(12 * time.Hour)
-	defer ticker.Stop() // Garante que o ticker seja limpo ao final
-
-	// Executa o scraper uma vez imediatamente no início, sem esperar 24h.
 	runScraper()
-
-	// Loop infinito para manter o programa rodando
-	for {
-		// 'select' espera por um evento.
-		select {
-		// O caso abaixo só é ativado quando o ticker "apita".
-		case <-ticker.C:
-			// Quando o ticker dispara, chama a função do scraper novamente.
-			runScraper()
-		}
-	}
 }
