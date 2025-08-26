@@ -204,7 +204,7 @@ func runScraper() {
 
 func main() {
 
-	ticker := time.NewTicker(24 * time.Hour)
+	ticker := time.NewTicker(12 * time.Hour)
 	defer ticker.Stop() // Garante que o ticker seja limpo ao final
 
 	// Executa o scraper uma vez imediatamente no início, sem esperar 24h.
