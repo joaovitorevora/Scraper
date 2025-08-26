@@ -1,6 +1,6 @@
 module georisk-scraper
 
-go 1.25.0
+go 1.24.4
 
 require (
 	cloud.google.com/go/firestore v1.18.0
