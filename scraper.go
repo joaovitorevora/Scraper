@@ -56,7 +56,7 @@ func geocodeAddress(address string) (*latlng.LatLng, error) {
 
 	req, _ := http.NewRequest("GET", fullURL, nil)
 	// É importante ter um User-Agent para serviços como o Nominatim
-	req.Header.Set("User-Agent", "GeoRiskScraper/1.0 (seu-email-para-contato@example.com)")
+	req.Header.Set("User-Agent", "GeoRiskScraper/1.0 (joaovitorevora@gmail.com)")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	res, err := client.Do(req)
