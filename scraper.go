@@ -1,14 +1,15 @@
 package main
 
 import (
-	"bytes" // Importado para a melhoria de diagnóstico
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io" // Importado para a melhoria de diagnóstico
+	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	latlng "google.golang.org/genproto/googleapis/type/latlng"
 )
 
+// Estrutura para guardar os resultados da geocodificação do Nominatim
 type GeocodeResult struct {
 	Lat string `json:"lat"`
 	Lon string `json:"lon"`
@@ -35,6 +37,7 @@ var crimeKeywords = map[string][]string{
 	"sequestro": {"sequestro", "sequestrado", "sequestrada"},
 }
 
+// detectCrimeType identifica o tipo de crime com base em palavras-chave no texto.
 func detectCrimeType(text string) string {
 	lowerText := strings.ToLower(text)
 	for crimeType, keywords := range crimeKeywords {
@@ -47,7 +50,7 @@ func detectCrimeType(text string) string {
 	return "nao_identificado"
 }
 
-// geocodeAddress usa o Nominatim (OpenStreetMap) para obter coordenadas
+// geocodeAddress converte um endereço em coordenadas geográficas usando Nominatim.
 func geocodeAddress(address string) (*latlng.LatLng, error) {
 	if address == "" {
 		return nil, fmt.Errorf("endereço vazio")
@@ -57,8 +60,8 @@ func geocodeAddress(address string) (*latlng.LatLng, error) {
 	fullURL := fmt.Sprintf("%s?format=json&q=%s", baseURL, url.QueryEscape(address))
 
 	req, _ := http.NewRequest("GET", fullURL, nil)
-
-	req.Header.Set("User-Agent", "GeoRiskScraper/1.0 (joaovitorevora@gmail.com)")
+	// User-Agent personalizado e único para cumprir a política de uso da API.
+	req.Header.Set("User-Agent", "GeoRisk Scraper Project (joaovitorevora@gmail.com)")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	res, err := client.Do(req)
@@ -69,15 +72,12 @@ func geocodeAddress(address string) (*latlng.LatLng, error) {
 
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		log.Printf("Erro ao ler o corpo da resposta: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("erro ao ler o corpo da resposta: %v", err)
 	}
-
 	res.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	var results []GeocodeResult
 	if err := json.NewDecoder(res.Body).Decode(&results); err != nil {
-		// Se der erro no JSON, o log abaixo irá imprimir a página HTML que a API retornou
 		log.Printf("Erro ao decodificar JSON. Corpo da resposta recebida: %s", string(bodyBytes))
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func geocodeAddress(address string) (*latlng.LatLng, error) {
 	return nil, fmt.Errorf("nenhum resultado encontrado para o endereço")
 }
 
-// extractDataFromArticle extrai o endereço e tipo de crime do artigo
+// extractDataFromArticle extrai o endereço e o tipo de crime do corpo de uma notícia.
 func extractDataFromArticle(articleURL string) (string, string) {
 	res, err := http.Get(articleURL)
 	if err != nil {
@@ -124,16 +124,24 @@ func extractDataFromArticle(articleURL string) (string, string) {
 	return address, crimeType
 }
 
+// runScraper contém a lógica principal do processo de scraping.
 func runScraper() {
 	log.Println("=======================================")
 	log.Println("Iniciando nova execução do scraper...")
 
 	ctx := context.Background()
-	sa := option.WithCredentialsFile("./KeyFirebase.json")
+
+	// Inicializa o Firebase a partir da variável de ambiente, não de um arquivo.
+	credentialsJSON := os.Getenv("FIREBASE_CREDENTIALS")
+	if credentialsJSON == "" {
+		log.Fatal("!!! ERRO CRÍTICO: A variável de ambiente FIREBASE_CREDENTIALS não foi encontrada ou está vazia.")
+	}
+	sa := option.WithCredentialsJSON([]byte(credentialsJSON))
 	app, err := firebase.NewApp(ctx, nil, sa)
 	if err != nil {
 		log.Fatalf("Erro ao inicializar o Firebase: %v\n", err)
 	}
+
 	client, err := app.Firestore(ctx)
 	if err != nil {
 		log.Fatalf("Erro ao conectar ao Firestore: %v", err)
@@ -171,26 +179,26 @@ func runScraper() {
 	log.Printf("Total de %d links únicos encontrados para processar.", len(allLinks))
 
 	for link := range allLinks {
+		// Verifica se o link já foi processado para evitar duplicatas.
 		iter := client.Collection("risk_zones").Where("link", "==", link).Limit(1).Documents(ctx)
 		docs, err := iter.GetAll()
 		if err != nil {
 			log.Printf("Erro ao verificar duplicidade para o link %s: %v", link, err)
 			continue
 		}
-
 		if len(docs) > 0 {
-			continue
+			continue // Pula se o link já existe no banco.
 		}
 
 		address, crimeType := extractDataFromArticle(link)
 
 		if address == "" || crimeType == "nao_identificado" {
-			continue
+			continue // Pula se não encontrou informações essenciais.
 		}
 
 		coords, err := geocodeAddress(address)
 		if err != nil {
-			log.Printf("Falha na geocodificação para o endereço '%s' extraído de %s: %v", address, link, err)
+			log.Printf("Falha na geocodificação para o endereço '%s': %v", address, err)
 			continue
 		}
 
@@ -207,13 +215,15 @@ func runScraper() {
 			log.Printf("Falha ao salvar no Firestore: %v", err)
 		}
 
-		time.Sleep(1 * time.Second) // Pausa para não sobrecarregar os serviços
+		// Pausa obrigatória para respeitar os limites de uso da API de geocodificação.
+		time.Sleep(1 * time.Second)
 	}
 
 	log.Println("Scraping concluído.")
 	log.Println("=======================================")
 }
 
+// main é o ponto de entrada do programa. Para um Cron Job, ele apenas chama a lógica principal uma vez.
 func main() {
 	runScraper()
 }
