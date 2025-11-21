@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -61,7 +60,7 @@ func geocodeAddress(address string) (*latlng.LatLng, error) {
 
 	req, _ := http.NewRequest("GET", fullURL, nil)
 	// User-Agent personalizado e único para cumprir a política de uso da API.
-	req.Header.Set("User-Agent", "GeoRisk Scraper Project (joaovitorevora@gmail.com)")
+	req.Header.Set("User-Agent", "GeoRisk Scraper Project (seu.email@exemplo.com)") // Coloque um email real aqui
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	res, err := client.Do(req)
@@ -131,15 +130,15 @@ func runScraper() {
 
 	ctx := context.Background()
 
-	// Inicializa o Firebase a partir da variável de ambiente, não de um arquivo.
-	credentialsJSON := os.Getenv("FIREBASE_CREDENTIALS")
-	if credentialsJSON == "" {
-		log.Fatal("!!! ERRO CRÍTICO: A variável de ambiente FIREBASE_CREDENTIALS não foi encontrada ou está vazia.")
-	}
-	sa := option.WithCredentialsJSON([]byte(credentialsJSON))
+	// =================================================================
+	// CÓDIGO AJUSTADO PARA RODAR LOCALMENTE
+	// Esta linha lê o arquivo "KeyFirebase.json" diretamente da pasta do projeto.
+	sa := option.WithCredentialsFile("KeyFirebase.json")
+	// =================================================================
+
 	app, err := firebase.NewApp(ctx, nil, sa)
 	if err != nil {
-		log.Fatalf("Erro ao inicializar o Firebase: %v\n", err)
+		log.Fatalf("Erro ao inicializar o Firebase. Verifique se o arquivo 'KeyFirebase.json' está na pasta correta. Erro: %v\n", err)
 	}
 
 	client, err := app.Firestore(ctx)
@@ -223,7 +222,7 @@ func runScraper() {
 	log.Println("=======================================")
 }
 
-// main é o ponto de entrada do programa. Para um Cron Job, ele apenas chama a lógica principal uma vez.
+// main é o ponto de entrada do programa.
 func main() {
 	runScraper()
 }
