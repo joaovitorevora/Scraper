@@ -222,7 +222,13 @@ func runScraper() {
 	log.Println("=======================================")
 }
 
-// main é o ponto de entrada do programa.
 func main() {
-	runScraper()
+	for {
+		log.Println("Iniciando ciclo de scraping...")
+		runScraper()
+
+		log.Println("Ciclo finalizado. Dormindo por 24 horas...")
+		// Pausa a execução por 24 horas
+		time.Sleep(24 * time.Hour)
+	}
 }
