@@ -106,17 +106,36 @@ func extractDataFromArticle(articleURL string) (string, string) {
 	}
 
 	var text string
+	// Tenta encontrar conteúdo em blocos comuns de artigo.
 	text = doc.Find(".entry-content, .post-text, .materia-conteudo").Text()
 	if text == "" {
 		text = doc.Find("body").Text()
 	}
 
-	re := regexp.MustCompile(`(?i)((Rua|Avenida|Av\.|Travessa|Praça|Bairro|Jardim|Vila|Rodovia)\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][^.,\n]+)`)
+	re := regexp.MustCompile(`(?i)((Rua|Avenida|Av\.|Travessa|Praça|Bairro|Jardim|Vila|Rodovia|Parque)\s+[^.,\n]{5,80}(?:\s*(n[oº]?\s*\d+))?)`)
+
 	matches := re.FindStringSubmatch(text)
 
 	var address string
-	if len(matches) > 0 {
-		address = strings.TrimSpace(matches[0]) + ", Limeira, SP, Brasil"
+	if len(matches) > 1 {
+		rawAddress := strings.TrimSpace(matches[1])
+		// Remove ruídos que o Nominatim não entenderia, como frases descritivas da notícia.
+
+		//Remove pontuações e excesso de espaços no final.
+		cleanedAddress := strings.TrimRight(rawAddress, ",. ")
+
+		//Remove frases comuns de ruído que se seguem ao endereço, ex: "por homem desconhecido", "por volta das"
+		noiseRe := regexp.MustCompile(`(?i)(\s+(por|em|de|que|do|da|durante|onde|que|e)\s+.*)`)
+		cleanedAddress = noiseRe.ReplaceAllString(cleanedAddress, "")
+
+		//Garante que se a regex capturou algo como "Bairro X", não tenha pontuação no final.
+		cleanedAddress = strings.TrimRight(cleanedAddress, ",. ")
+
+		// Constrói a string final para o Nominatim
+		address = strings.TrimSpace(cleanedAddress) + ", Limeira, SP, Brasil"
+		log.Printf("DEBUG: Endereço para geocodificação: %s", address)
+	} else {
+		log.Printf("DEBUG: REGEX FAILED. Não foi encontrado endereço específico.")
 	}
 
 	crimeType := detectCrimeType(text)
@@ -130,8 +149,6 @@ func runScraper() {
 
 	ctx := context.Background()
 
-	// =================================================================
-	// CÓDIGO AJUSTADO PARA RODAR LOCALMENTE
 	// Esta linha lê o arquivo "KeyFirebase.json" diretamente da pasta do projeto.
 	sa := option.WithCredentialsFile("KeyFirebase.json")
 	// =================================================================
